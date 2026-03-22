@@ -1,6 +1,4 @@
-<<<<<<< HEAD
 
-=======
 # Ouroboros — The Self-Sustaining Agent
 
 > The first AI agent that earns, thinks, and trades entirely on its own.
@@ -59,4 +57,3 @@ Agent sleeps until next cycle
 
 The treasury contract enforces a single rule in Solidity: **only yield above the principal can ever be spent**. The principal is mathematically locked. The agent earns yield, pays for its own Claude inference, executes trades with the remainder, and logs everything on-chain. It has a permanent verifiable history of every decision it has ever made.
 
->>>>>>> 058a717 (Add README and .env.example)
