@@ -87,10 +87,11 @@ State:
 - Available yield: ${yieldAvailable} stETH
 - Cycles run: ${cycles}
 
-Rules:
-- yield < 0.05 stETH → HOLD
-- yield 0.05 to 0.3 stETH → TRADE (swap to USDC)
-- yield > 0.3 stETH → REINVEST (compound)
+Rules — you MUST follow these exactly:
+- If yield is less than 0.05 stETH: decision MUST be HOLD
+- If yield is between 0.05 and 0.3 stETH: decision MUST be TRADE
+- If yield is greater than 0.3 stETH: decision MUST be REINVEST
+- Current yield is ${yieldAvailable} stETH — apply the correct rule above
 
 Respond ONLY in this JSON format:
 {
