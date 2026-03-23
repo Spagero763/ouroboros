@@ -1,0 +1,57 @@
+{
+  "name": "Ouroboros",
+  "version": "1.0.0",
+  "description": "A fully autonomous DeFi AI agent that stakes ETH, earns yield, pays for its own inference, and executes trades — entirely without human intervention.",
+  "operator_wallet": "0x29cCC41eEE6a2eD0E23aB3a24406A45190fd83DF",
+  "erc8004_identity": {
+    "agent_id": "34151",
+    "registry": "eip155:8453:synthesis",
+    "registration_tx": "https://basescan.org/tx/0x7063f2cc6a121c4b08fbef80d1791b1a41b6b5a6b27fae7c7ac96fa72948ae87"
+  },
+  "supported_tools": [
+    "anthropic_claude",
+    "uniswap_v3",
+    "lido_steth",
+    "base_sepolia_rpc",
+    "ethers_js"
+  ],
+  "tech_stack": [
+    "Node.js",
+    "Solidity 0.8.20",
+    "Hardhat",
+    "ethers.js",
+    "React",
+    "Vite"
+  ],
+  "compute_constraints": {
+    "cycle_frequency": "24h",
+    "max_tokens_per_cycle": 256,
+    "model": "claude-haiku-4-5-20251001",
+    "gas_reserve": "0.005 ETH"
+  },
+  "task_categories": [
+    "defi_yield_management",
+    "autonomous_trading",
+    "on_chain_decision_logging",
+    "self_sustaining_operations"
+  ],
+  "safety_guardrails": [
+    "Principal locked forever — only yield is spendable",
+    "Safe amount check — never spend more than available yield",
+    "Gas reserve — always keep 0.005 ETH for gas",
+    "JSON validation — malformed Claude responses are rejected",
+    "Nonce management — fresh provider per cycle prevents replay"
+  ],
+  "services": [
+    {
+      "name": "web",
+      "endpoint": "https://ouroboros-roan.vercel.app"
+    }
+  ],
+  "contracts": {
+    "treasury": "0x97CDC84FcFab7b24998C93f0130EFbB0c5dBa247",
+    "mock_steth": "0xC187f626c518f4a7591bAA7387CbdBAB1DC99bc9",
+    "network": "base-sepolia",
+    "chain_id": 84532
+  }
+}
