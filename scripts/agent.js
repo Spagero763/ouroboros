@@ -25,7 +25,7 @@ async function callClaude(prompt) {
     },
     body: JSON.stringify({
       model: "claude-haiku-4-5-20251001",
-      max_tokens: 256,
+      max_tokens: 128,
       messages: [{ role: "user", content: prompt }],
     }),
   });
@@ -34,19 +34,23 @@ async function callClaude(prompt) {
   return data.content[0].text.trim();
 }
 
+function getDecisionType(yieldFloat) {
+  if (yieldFloat < 0.05) return "HOLD";
+  if (yieldFloat <= 0.3) return "TRADE";
+  return "REINVEST";
+}
+
 async function runAgentCycle() {
   log("========================================");
   log("Ouroboros cycle starting...");
   log("========================================");
 
   try {
-    // Single provider and wallet for entire cycle
     const provider = new ethers.JsonRpcProvider("https://sepolia.base.org");
     const wallet = new ethers.Wallet(process.env.PRIVATE_KEY, provider);
     const treasury = new ethers.Contract(process.env.TREASURY_ADDRESS, TREASURY_ABI, wallet);
     const stETH = new ethers.Contract(process.env.MOCK_STETH_ADDRESS, STETH_ABI, wallet);
 
-    // Get starting nonce
     let nonce = await provider.getTransactionCount(wallet.address, "pending");
     log(`Starting nonce: ${nonce}`);
 
@@ -77,46 +81,30 @@ async function runAgentCycle() {
       return;
     }
 
-    // Step 3 — Ask Claude
-    log("Asking Claude for decision...");
-    const prompt = `You are Ouroboros, a fully autonomous DeFi AI agent on Base Sepolia.
+    // Step 3 — Determine decision in code (not Claude)
+    const yieldFloat = parseFloat(yieldAvailable);
+    const decisionType = getDecisionType(yieldFloat);
+    log(`Decision type (from rules): ${decisionType}`);
 
-State:
-- Principal locked: ${principal} stETH (untouchable)
-- Balance: ${balance} stETH
-- Available yield: ${yieldAvailable} stETH
-- Cycles run: ${cycles}
+    // Ask Claude only for the reason
+    log("Asking Claude for reasoning...");
+    const prompt = `You are Ouroboros, an autonomous DeFi agent. The decision is ${decisionType} based on ${yieldAvailable} stETH yield.
 
-Rules — you MUST follow these exactly:
-- If yield is less than 0.05 stETH: decision MUST be HOLD
-- If yield is between 0.05 and 0.3 stETH: decision MUST be TRADE
-- If yield is greater than 0.3 stETH: decision MUST be REINVEST
-- Current yield is ${yieldAvailable} stETH — apply the correct rule above
+Write exactly ONE sentence explaining why ${decisionType} is the correct action for this yield amount.
+Be specific about the amount. No JSON. Just the sentence.`;
 
-Respond ONLY in this JSON format:
-{
-  "decision": "TRADE" or "REINVEST" or "HOLD",
-  "amount": <number max ${yieldAvailable}>,
-  "reason": "<one sentence>",
-  "confidence": <1-10>
-}`;
+    const reason = await callClaude(prompt);
+    log(`Reason: ${reason}`);
 
-    const raw = await callClaude(prompt);
-    log(`Claude: ${raw}`);
-
-    let decision;
-    try {
-      const match = raw.match(/\{[\s\S]*\}/);
-      decision = JSON.parse(match ? match[0] : raw);
-    } catch (e) {
-      log("Could not parse Claude response. Skipping.");
-      return;
-    }
+    const decision = {
+      decision: decisionType,
+      amount: yieldFloat,
+      reason: reason.replace(/^["']|["']$/g, '').trim(),
+    };
 
     log(`Decision:   ${decision.decision}`);
     log(`Amount:     ${decision.amount} stETH`);
     log(`Reason:     ${decision.reason}`);
-    log(`Confidence: ${decision.confidence}/10`);
 
     // Step 4 — Execute
     if (decision.decision === "HOLD") {
@@ -127,14 +115,12 @@ Respond ONLY in this JSON format:
       const safe = amount > maxYield ? maxYield : amount;
       const reason = `${decision.decision}: ${decision.reason}`;
 
-      // spendYield
       log(`Calling spendYield(${ethers.formatEther(safe)} stETH)...`);
       const spendTx = await treasury.spendYield(safe, reason, { nonce: nonce++ });
       await spendTx.wait();
       log(`spendYield confirmed: ${spendTx.hash}`);
       log(`Basescan: https://sepolia.basescan.org/tx/${spendTx.hash}`);
 
-      // logDecision — ERC-8004
       log("Writing decision to ERC-8004 on-chain record...");
       const txBytes = ethers.zeroPadValue(spendTx.hash, 32);
       const logTx = await treasury.logDecision(
@@ -148,13 +134,11 @@ Respond ONLY in this JSON format:
       log(`ERC-8004 logged: ${logTx.hash}`);
       log(`Basescan: https://sepolia.basescan.org/tx/${logTx.hash}`);
 
-      // Attempt swap
       if (decision.decision === "TRADE") {
         try {
           log("Executing Uniswap swap...");
           const swap = await swapETHForUSDC(safe);
           log(`Swap confirmed: ${swap.txHash}`);
-          log(`USDC received: ${swap.usdcReceived}`);
         } catch (swapErr) {
           log(`Swap failed (testnet liquidity): ${swapErr.message}`);
           log("Decision still logged on-chain. Continuing.");
