@@ -51,7 +51,7 @@ async function runAgentCycle() {
   log("========================================");
 
   try {
-    const { treasury, stETH, provider, wallet } = getFresh();
+    const { treasury, stETH } = getFresh();
 
     // Step 1 — Read state
     const state = await treasury.getState();
@@ -67,7 +67,7 @@ async function runAgentCycle() {
     log(`Cycles completed:  ${cycles}`);
     log(`Total yield spent: ${spent} stETH`);
 
-    // Step 2 — Simulate yield if needed
+    // Step 2 — Simulate yield if none available
     if (parseFloat(yieldAvailable) <= 0) {
       log("No yield. Simulating 0.5 stETH for demo...");
       const tx = await stETH.simulateYield(
@@ -120,41 +120,28 @@ Respond ONLY in this JSON format:
     log(`Confidence: ${decision.confidence}/10`);
 
     // Step 4 — Execute
-    let execTxHash = ethers.ZeroHash;
-
     if (decision.decision === "HOLD") {
       log("HOLD — no action this cycle.");
 
     } else {
+      const { treasury: t2, stETH: s2 } = getFresh();
       const amount = ethers.parseEther(String(decision.amount));
-      const maxYield = await treasury.availableYield();
+      const maxYield = await t2.availableYield();
       const safe = amount > maxYield ? maxYield : amount;
       const reason = `${decision.decision}: ${decision.reason}`;
 
+      // Spend yield
       log(`Calling spendYield(${ethers.formatEther(safe)} stETH)...`);
-      const spendTx = await treasury.spendYield(safe, reason);
+      const spendTx = await t2.spendYield(safe, reason);
       await spendTx.wait();
       log(`spendYield confirmed: ${spendTx.hash}`);
       log(`Basescan: https://sepolia.basescan.org/tx/${spendTx.hash}`);
 
-      if (decision.decision === "TRADE") {
-        log("Executing Uniswap swap...");
-        const swap = await swapETHForUSDC(safe);
-        log(`Swap confirmed: ${swap.txHash}`);
-        log(`USDC received: ${swap.usdcReceived}`);
-        log(`Basescan: https://sepolia.basescan.org/tx/${swap.txHash}`);
-        execTxHash = swap.txHash;
-      } else {
-        execTxHash = spendTx.hash;
-      }
-
-      // Step 5 — Log to ERC-8004
+      // Log to ERC-8004 immediately — before swap so it always records
       log("Writing decision to ERC-8004 on-chain record...");
-      const txBytes = execTxHash.startsWith("0x")
-        ? ethers.zeroPadValue(execTxHash, 32)
-        : ethers.ZeroHash;
-
-      const logTx = await treasury.logDecision(
+      const txBytes = ethers.zeroPadValue(spendTx.hash, 32);
+      const { treasury: t3 } = getFresh();
+      const logTx = await t3.logDecision(
         decision.decision,
         safe,
         decision.reason,
@@ -163,20 +150,32 @@ Respond ONLY in this JSON format:
       await logTx.wait();
       log(`ERC-8004 logged: ${logTx.hash}`);
       log(`Basescan: https://sepolia.basescan.org/tx/${logTx.hash}`);
+
+      // Attempt swap — wrapped in try/catch so failure doesn't break the cycle
+      if (decision.decision === "TRADE") {
+        try {
+          log("Executing Uniswap swap...");
+          const swap = await swapETHForUSDC(safe);
+          log(`Swap confirmed: ${swap.txHash}`);
+          log(`USDC received: ${swap.usdcReceived}`);
+        } catch (swapErr) {
+          log(`Swap failed (testnet liquidity issue — decision still logged): ${swapErr.message}`);
+        }
+      }
     }
 
-    // Step 6 — Prep next cycle
-log("Simulating 0.5 stETH yield for next cycle...");
-const { provider: p2, wallet: w2 } = getFresh();
-const pendingNonce = await p2.getTransactionCount(w2.address, "pending");
-const stETH2 = new ethers.Contract(process.env.MOCK_STETH_ADDRESS, STETH_ABI, w2);
-const nextTx = await stETH2.simulateYield(
-  process.env.TREASURY_ADDRESS,
-  ethers.parseEther("0.5"),
-  { nonce: pendingNonce }
-);
-await nextTx.wait();
-log(`Next yield ready. Tx: ${nextTx.hash}`);
+    // Step 5 — Prep next cycle
+    log("Simulating 0.5 stETH yield for next cycle...");
+    const { provider: p2, wallet: w2 } = getFresh();
+    const pendingNonce = await p2.getTransactionCount(w2.address, "pending");
+    const stETH2 = new ethers.Contract(process.env.MOCK_STETH_ADDRESS, STETH_ABI, w2);
+    const nextTx = await stETH2.simulateYield(
+      process.env.TREASURY_ADDRESS,
+      ethers.parseEther("0.5"),
+      { nonce: pendingNonce }
+    );
+    await nextTx.wait();
+    log(`Next yield ready. Tx: ${nextTx.hash}`);
 
     log("========================================");
     log("Cycle complete. Sleeping until next run.");
@@ -187,7 +186,6 @@ log(`Next yield ready. Tx: ${nextTx.hash}`);
   }
 }
 
-// Start
 log(`Ouroboros starting...`);
 log(`Wallet:   ${new ethers.Wallet(process.env.PRIVATE_KEY).address}`);
 log(`Treasury: ${process.env.TREASURY_ADDRESS}`);
