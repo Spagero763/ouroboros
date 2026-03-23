@@ -69,17 +69,22 @@ export default function App() {
 
   const hero = useReveal(), metrics = useReveal(), feed = useReveal(), about = useReveal()
 
-  async function load() {
-    try {
-      const p = new ethers.JsonRpcProvider(RPC_URL)
-      const c = new ethers.Contract(TREASURY_ADDRESS, TREASURY_ABI, p)
-      const r = await c.getState()
-      setS({ principal: ethers.formatEther(r[0]), balance: ethers.formatEther(r[1]), yield: ethers.formatEther(r[2]), cycles: r[4].toString(), spent: ethers.formatEther(r[5]) })
-      const evts = await c.queryFilter(c.filters.DecisionLogged(), -50000)
-      setDec(evts.map(e => ({ cycle: e.args[0].toString(), type: e.args[1], amount: ethers.formatEther(e.args[2]), reason: e.args[3], timestamp: e.args[5].toString(), tx: e.transactionHash })).reverse())
-    } catch (e) { console.error(e) }
-    finally { setLoading(false) }
-  }
+ async function load() {
+  try {
+    const p = new ethers.JsonRpcProvider(RPC_URL)
+    const c = new ethers.Contract(TREASURY_ADDRESS, TREASURY_ABI, p)
+    const r = await c.getState()
+    setS({ principal: ethers.formatEther(r[0]), balance: ethers.formatEther(r[1]), yield: ethers.formatEther(r[2]), cycles: r[4].toString(), spent: ethers.formatEther(r[5]) })
+
+    // Get current block then query last 1500 blocks
+    const currentBlock = await p.getBlockNumber()
+    const fromBlock = Math.max(0, currentBlock - 1500)
+    const evts = await c.queryFilter(c.filters.DecisionLogged(), fromBlock, currentBlock)
+
+    setDec(evts.map(e => ({ cycle: e.args[0].toString(), type: e.args[1], amount: ethers.formatEther(e.args[2]), reason: e.args[3], timestamp: e.args[5].toString(), tx: e.transactionHash })).reverse())
+  } catch (e) { console.error(e) }
+  finally { setLoading(false) }
+}
 
   useEffect(() => { load(); const id = setInterval(load, 30000); return () => clearInterval(id) }, [])
 
